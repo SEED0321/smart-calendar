@@ -1,0 +1,1662 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>구글 연동 스마트 캘린더</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <style>
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 1px;
+            background-color: #e5e7eb;
+        }
+        .calendar-cell {
+            background-color: white;
+            min-height: 120px;
+            position: relative;
+            cursor: pointer;
+        }
+        .calendar-cell:hover {
+            background-color: #f3f4f6;
+        }
+        .calendar-cell.other-month {
+            background-color: #f9fafb;
+            color: #9ca3af;
+        }
+        .calendar-cell.today {
+            background-color: #dbeafe;
+        }
+        .calendar-cell.selected {
+            background-color: #dcfce7;
+            border: 2px solid #f59e0b;
+        }
+        .event-item {
+            cursor: pointer;
+            transition: all 0.2s;
+            border-radius: 4px;
+            padding: 2px 6px;
+            margin: 1px 0;
+            font-size: 12px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .event-item:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .event-item.conflict {
+            border: 2px solid #f59e0b !important;
+            animation: pulse 1s infinite;
+        }
+        .event-blue { background-color: #dbeafe; color: #1e40af; }
+        .event-red { background-color: #fecaca; color: #dc2626; }
+        .event-green { background-color: #dcfce7; color: #16a34a; }
+        .event-yellow { background-color: #fef3c7; color: #d97706; }
+        .event-purple { background-color: #e9d5ff; color: #9333ea; }
+        
+        .week-grid {
+            display: grid;
+            grid-template-columns: 60px repeat(7, 1fr);
+            gap: 1px;
+            background-color: #e5e7eb;
+        }
+        .week-time-slot {
+            background-color: white;
+            border-bottom: 1px solid #e5e7eb;
+            padding: 8px 4px;
+            font-size: 12px;
+            text-align: center;
+            color: #6b7280;
+        }
+        .week-cell {
+            background-color: white;
+            border-bottom: 1px solid #e5e7eb;
+            min-height: 60px;
+            position: relative;
+            padding: 2px;
+            cursor: pointer;
+        }
+        .week-cell:hover {
+            background-color: #f3f4f6;
+        }
+        
+        .day-grid {
+            display: grid;
+            grid-template-columns: 60px 1fr;
+            gap: 1px;
+            background-color: #e5e7eb;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+        .modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 20px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+        }
+        
+        .sidebar {
+            width: 256px;
+            background-color: white;
+            border-right: 1px solid #e5e7eb;
+            padding: 16px;
+        }
+        
+        .mini-calendar {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        .mini-calendar th, .mini-calendar td {
+            width: 32px;
+            height: 32px;
+            text-align: center;
+            font-size: 12px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .mini-calendar td:hover {
+            background-color: #f3f4f6;
+        }
+        .mini-calendar .today {
+            background-color: #3b82f6;
+            color: white;
+        }
+        .mini-calendar .selected {
+            background-color: #dbeafe;
+        }
+
+        .ai-assistant {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 350px;
+            height: 500px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            z-index: 1001;
+            transition: all 0.3s ease;
+            transform: translateY(100%);
+            opacity: 0;
+        }
+        .ai-assistant.open {
+            transform: translateY(0);
+            opacity: 1;
+        }
+        .ai-chat-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 16px;
+            border-radius: 12px 12px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .ai-chat-body {
+            height: 360px;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .ai-message, .user-message {
+            max-width: 80%;
+            padding: 8px 12px;
+            border-radius: 18px;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        .ai-message {
+            background: #f3f4f6;
+            color: #374151;
+            align-self: flex-start;
+        }
+        .user-message {
+            background: #3b82f6;
+            color: white;
+            align-self: flex-end;
+        }
+        .ai-input-container {
+            padding: 16px;
+            border-top: 1px solid #e5e7eb;
+            display: flex;
+            gap: 8px;
+        }
+        .ai-input {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 20px;
+            font-size: 14px;
+            outline: none;
+        }
+        .ai-send-btn {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .ai-fab {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            z-index: 1002;
+            transition: all 0.3s ease;
+        }
+        .ai-fab:hover {
+            transform: scale(1.1);
+        }
+        .ai-fab.hidden {
+            display: none;
+        }
+
+        .voice-fab {
+            position: fixed;
+            bottom: 100px;
+            right: 20px;
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            z-index: 1002;
+            transition: all 0.3s ease;
+        }
+        .voice-fab:hover {
+            transform: scale(1.1);
+        }
+        .voice-fab.listening {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            animation: pulse-red 1.5s infinite;
+        }
+
+        .google-user-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #f0f9ff;
+            padding: 8px 12px;
+            border-radius: 20px;
+            border: 1px solid #0ea5e9;
+        }
+        .google-user-info img {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        @keyframes pulse-red {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div class="flex h-screen">
+        <!-- 사이드바 -->
+        <div class="sidebar">
+            <!-- 미니 캘린더 -->
+            <div class="mb-6">
+                <div class="flex items-center justify-between mb-2">
+                    <button id="prevMonth" class="p-1 hover:bg-gray-100 rounded">
+                        <i class="fas fa-chevron-left text-gray-600"></i>
+                    </button>
+                    <h3 id="miniCalendarTitle" class="font-semibold text-gray-800"></h3>
+                    <button id="nextMonth" class="p-1 hover:bg-gray-100 rounded">
+                        <i class="fas fa-chevron-right text-gray-600"></i>
+                    </button>
+                </div>
+                <table class="mini-calendar">
+                    <thead>
+                        <tr>
+                            <th>일</th><th>월</th><th>화</th><th>수</th><th>목</th><th>금</th><th>토</th>
+                        </tr>
+                    </thead>
+                    <tbody id="miniCalendarBody"></tbody>
+                </table>
+            </div>
+            
+            <!-- 내 캘린더 -->
+            <div class="mb-6">
+                <h3 class="font-semibold text-gray-800 mb-3">내 캘린더</h3>
+                <div class="space-y-2">
+                    <div class="flex items-center">
+                        <input type="checkbox" id="calendar1" checked class="mr-2">
+                        <span class="w-3 h-3 bg-blue-500 rounded-full mr-2"></span>
+                        <label for="calendar1" class="text-sm text-gray-700">개인</label>
+                    </div>
+                    <div class="flex items-center">
+                        <input type="checkbox" id="calendar2" checked class="mr-2">
+                        <span class="w-3 h-3 bg-red-500 rounded-full mr-2"></span>
+                        <label for="calendar2" class="text-sm text-gray-700">업무</label>
+                    </div>
+                    <div class="flex items-center">
+                        <input type="checkbox" id="calendar3" checked class="mr-2">
+                        <span class="w-3 h-3 bg-green-500 rounded-full mr-2"></span>
+                        <label for="calendar3" class="text-sm text-gray-700">가족</label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI 인사이트 -->
+            <div id="aiInsights">
+                <h3 class="font-semibold text-gray-800 mb-3">AI 인사이트</h3>
+                <div id="insightsList" class="space-y-2 text-xs">
+                    <div class="bg-blue-50 p-2 rounded text-blue-800">
+                        <i class="fas fa-lightbulb mr-1"></i>
+                        일정을 추가해보세요
+                    </div>
+                    <div class="bg-green-50 p-2 rounded text-green-800">
+                        <i class="fas fa-microphone mr-1"></i>
+                        음성으로 편리하게
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 메인 컨텐츠 -->
+        <div class="flex-1 flex flex-col">
+            <!-- 상단 툴바 -->
+            <div class="bg-white border-b border-gray-200 px-6 py-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-4">
+                        <button id="createEvent" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center">
+                            <i class="fas fa-plus mr-2"></i>
+                            만들기
+                        </button>
+                        <button id="voiceAdd" class="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg flex items-center">
+                            <i class="fas fa-microphone mr-2"></i>
+                            음성으로 추가
+                        </button>
+                        <button id="todayBtn" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                            오늘
+                        </button>
+                        <div class="flex items-center space-x-2">
+                            <button id="prevBtn" class="p-2 hover:bg-gray-100 rounded">
+                                <i class="fas fa-chevron-left"></i>
+                            </button>
+                            <button id="nextBtn" class="p-2 hover:bg-gray-100 rounded">
+                                <i class="fas fa-chevron-right"></i>
+                            </button>
+                        </div>
+                        <h1 id="currentTitle" class="text-xl font-semibold text-gray-800"></h1>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <div id="googleUserInfo" class="hidden"></div>
+                        <button id="googleLoginBtn" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg flex items-center">
+                            <i class="fab fa-google mr-2"></i>
+                            구글 로그인
+                        </button>
+                        <button id="googleLogoutBtn" class="hidden bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg">
+                            로그아웃
+                        </button>
+                        <div class="flex border border-gray-300 rounded-lg">
+                            <button id="monthView" class="px-4 py-2 bg-blue-500 text-white rounded-l-lg">월</button>
+                            <button id="weekView" class="px-4 py-2 hover:bg-gray-50">주</button>
+                            <button id="dayView" class="px-4 py-2 hover:bg-gray-50 rounded-r-lg">일</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 캘린더 영역 -->
+            <div class="flex-1 overflow-auto p-6">
+                <!-- 월간 뷰 -->
+                <div id="monthViewContainer" class="h-full">
+                    <div class="calendar-grid mb-4">
+                        <div class="bg-gray-50 p-2 text-center font-semibold text-gray-600">일</div>
+                        <div class="bg-gray-50 p-2 text-center font-semibold text-gray-600">월</div>
+                        <div class="bg-gray-50 p-2 text-center font-semibold text-gray-600">화</div>
+                        <div class="bg-gray-50 p-2 text-center font-semibold text-gray-600">수</div>
+                        <div class="bg-gray-50 p-2 text-center font-semibold text-gray-600">목</div>
+                        <div class="bg-gray-50 p-2 text-center font-semibold text-gray-600">금</div>
+                        <div class="bg-gray-50 p-2 text-center font-semibold text-gray-600">토</div>
+                    </div>
+                    <div id="monthCalendar" class="calendar-grid flex-1"></div>
+                </div>
+                
+                <!-- 주간 뷰 -->
+                <div id="weekViewContainer" class="h-full hidden">
+                    <div class="week-grid mb-4">
+                        <div class="bg-gray-50 p-2"></div>
+                        <div class="bg-gray-50 p-2 text-center font-semibold text-gray-600">일</div>
+                        <div class="bg-gray-50 p-2 text-center font-semibold text-gray-600">월</div>
+                        <div class="bg-gray-50 p-2 text-center font-semibold text-gray-600">화</div>
+                        <div class="bg-gray-50 p-2 text-center font-semibold text-gray-600">수</div>
+                        <div class="bg-gray-50 p-2 text-center font-semibold text-gray-600">목</div>
+                        <div class="bg-gray-50 p-2 text-center font-semibold text-gray-600">금</div>
+                        <div class="bg-gray-50 p-2 text-center font-semibold text-gray-600">토</div>
+                    </div>
+                    <div id="weekCalendar" class="week-grid flex-1"></div>
+                </div>
+                
+                <!-- 일간 뷰 -->
+                <div id="dayViewContainer" class="h-full hidden">
+                    <div class="day-grid mb-4">
+                        <div class="bg-gray-50 p-2"></div>
+                        <div id="dayHeader" class="bg-gray-50 p-2 text-center font-semibold text-gray-600"></div>
+                    </div>
+                    <div id="dayCalendar" class="day-grid flex-1"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 일정 생성/편집 모달 -->
+    <div id="eventModal" class="modal">
+        <div class="modal-content">
+            <div class="flex justify-between items-center mb-4">
+                <h2 id="modalTitle" class="text-lg font-semibold">새 일정</h2>
+                <button id="closeModal" class="text-gray-500 hover:text-gray-700">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <!-- 충돌 경고 -->
+            <div id="conflictWarning" class="hidden bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+                <div class="flex items-center text-yellow-800">
+                    <i class="fas fa-exclamation-triangle mr-2"></i>
+                    <span class="font-semibold">일정 충돌 발견!</span>
+                </div>
+                <div id="conflictDetails" class="text-yellow-700 text-sm mt-1"></div>
+            </div>
+            
+            <form id="eventForm">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">제목</label>
+                    <input type="text" id="eventTitle" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">날짜</label>
+                    <input type="date" id="eventDate" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                </div>
+                <div class="mb-4">
+                    <div class="flex space-x-4">
+                        <div class="flex-1">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">시작 시간</label>
+                            <input type="time" id="eventStartTime" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div class="flex-1">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">종료 시간</label>
+                            <input type="time" id="eventEndTime" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">설명</label>
+                    <textarea id="eventDescription" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">색상</label>
+                    <div class="flex space-x-2">
+                        <button type="button" class="color-btn w-8 h-8 rounded-full bg-blue-500 border-2 border-gray-800" data-color="blue"></button>
+                        <button type="button" class="color-btn w-8 h-8 rounded-full bg-red-500 border-2 border-transparent" data-color="red"></button>
+                        <button type="button" class="color-btn w-8 h-8 rounded-full bg-green-500 border-2 border-transparent" data-color="green"></button>
+                        <button type="button" class="color-btn w-8 h-8 rounded-full bg-yellow-500 border-2 border-transparent" data-color="yellow"></button>
+                        <button type="button" class="color-btn w-8 h-8 rounded-full bg-purple-500 border-2 border-transparent" data-color="purple"></button>
+                    </div>
+                </div>
+                <div class="flex justify-between">
+                    <button type="button" id="deleteEvent" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg hidden">
+                        <i class="fas fa-trash mr-2"></i>삭제
+                    </button>
+                    <div class="flex space-x-2 ml-auto">
+                        <button type="button" id="cancelModal" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">취소</button>
+                        <button type="submit" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">저장</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 음성 FAB -->
+    <div id="voiceFab" class="voice-fab">
+        <i class="fas fa-microphone text-white text-xl"></i>
+    </div>
+
+    <!-- AI 도우미 FAB -->
+    <div id="aiFab" class="ai-fab">
+        <i class="fas fa-robot text-white text-xl"></i>
+    </div>
+
+    <!-- AI 도우미 채팅 -->
+    <div id="aiAssistant" class="ai-assistant">
+        <div class="ai-chat-header">
+            <div class="flex items-center">
+                <i class="fas fa-robot mr-2"></i>
+                <span class="font-semibold">AI 일정 도우미</span>
+            </div>
+            <button id="closeAI" class="hover:bg-white hover:bg-opacity-20 p-1 rounded">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div id="aiChatBody" class="ai-chat-body">
+            <div class="ai-message">
+                안녕하세요! 저는 여러분의 일정 관리를 도와드리는 AI 도우미입니다. 
+                일정 충돌 검사, 최적 시간 추천, 스케줄 분석은 물론 음성 명령도 지원해요! 🎤😊
+            </div>
+        </div>
+        <div class="ai-input-container">
+            <input type="text" id="aiInput" class="ai-input" placeholder="AI에게 질문해보세요...">
+            <button id="aiSendBtn" class="ai-send-btn">
+                <i class="fas fa-paper-plane"></i>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // 구글 클라이언트 ID
+        const GOOGLE_CLIENT_ID = '49611598763-hp2qeq2uj28k0m5p7spe4a2rekehgfld.apps.googleusercontent.com';
+        const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';
+        const SCOPES = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email';
+
+        // 글로벌 변수들
+        let gapi_loaded = false;
+        let gsi_loaded = false;
+        let tokenClient;
+        let currentUser = null;
+
+        class CalendarApp {
+            constructor() {
+                this.currentDate = new Date();
+                this.selectedDate = new Date();
+                this.currentView = 'month';
+                this.events = JSON.parse(localStorage.getItem('calendar-events') || '[]');
+                this.editingEventId = null;
+                this.selectedColor = 'blue';
+                
+                this.init();
+            }
+            
+            init() {
+                this.bindEvents();
+                this.render();
+                this.updateAIInsights();
+                this.initNotifications();
+                this.initGoogleAPI();
+            }
+
+            async initGoogleAPI() {
+                try {
+                    await this.loadGoogleAPIs();
+                    this.initializeGoogleSignIn();
+                } catch (error) {
+                    console.log('구글 API 로드 실패:', error);
+                }
+            }
+
+            loadGoogleAPIs() {
+                return new Promise((resolve) => {
+                    if (typeof gapi !== 'undefined') {
+                        gapi.load('api:client', async () => {
+                            await gapi.client.init({
+                                apiKey: '',
+                                discoveryDocs: [DISCOVERY_DOC],
+                            });
+                            gapi_loaded = true;
+                            this.maybeEnableGoogleLogin();
+                            resolve();
+                        });
+                    }
+
+                    if (typeof google !== 'undefined') {
+                        tokenClient = google.accounts.oauth2.initTokenClient({
+                            client_id: GOOGLE_CLIENT_ID,
+                            scope: SCOPES,
+                            callback: (tokenResponse) => {
+                                this.handleSignInSuccess(tokenResponse);
+                            },
+                        });
+                        gsi_loaded = true;
+                        this.maybeEnableGoogleLogin();
+                        resolve();
+                    }
+                });
+            }
+
+            initializeGoogleSignIn() {
+                const loginBtn = document.getElementById('googleLoginBtn');
+                const logoutBtn = document.getElementById('googleLogoutBtn');
+
+                loginBtn.addEventListener('click', () => {
+                    this.signInWithGoogle();
+                });
+
+                logoutBtn.addEventListener('click', () => {
+                    this.signOutFromGoogle();
+                });
+            }
+
+            maybeEnableGoogleLogin() {
+                if (gapi_loaded && gsi_loaded) {
+                    document.getElementById('googleLoginBtn').disabled = false;
+                }
+            }
+
+            signInWithGoogle() {
+                if (tokenClient) {
+                    tokenClient.requestAccessToken({prompt: 'consent'});
+                }
+            }
+
+            async handleSignInSuccess(tokenResponse) {
+                try {
+                    const response = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+                        headers: {
+                            'Authorization': `Bearer ${tokenResponse.access_token}`
+                        }
+                    });
+                    const userInfo = await response.json();
+                    
+                    currentUser = {
+                        ...userInfo,
+                        accessToken: tokenResponse.access_token
+                    };
+
+                    this.updateUIForSignedInUser(currentUser);
+                    this.loadEventsFromGoogle();
+                } catch (error) {
+                    console.error('사용자 정보 가져오기 실패:', error);
+                }
+            }
+
+            updateUIForSignedInUser(user) {
+                const loginBtn = document.getElementById('googleLoginBtn');
+                const logoutBtn = document.getElementById('googleLogoutBtn');
+                const userInfo = document.getElementById('googleUserInfo');
+
+                loginBtn.classList.add('hidden');
+                logoutBtn.classList.remove('hidden');
+                userInfo.classList.remove('hidden');
+                userInfo.innerHTML = `
+                    <img src="${user.picture}" alt="프로필">
+                    <span class="text-sm font-medium">${user.name}</span>
+                `;
+            }
+
+            signOutFromGoogle() {
+                currentUser = null;
+                const loginBtn = document.getElementById('googleLoginBtn');
+                const logoutBtn = document.getElementById('googleLogoutBtn');
+                const userInfo = document.getElementById('googleUserInfo');
+
+                loginBtn.classList.remove('hidden');
+                logoutBtn.classList.add('hidden');
+                userInfo.classList.add('hidden');
+            }
+
+            async saveEventsToGoogle() {
+                if (!currentUser) return;
+
+                try {
+                    const content = JSON.stringify(this.events);
+                    const metadata = {
+                        name: 'smart-calendar-events.json',
+                        parents: ['appDataFolder']
+                    };
+
+                    const form = new FormData();
+                    form.append('metadata', new Blob([JSON.stringify(metadata)], {type: 'application/json'}));
+                    form.append('file', new Blob([content], {type: 'application/json'}));
+
+                    await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${currentUser.accessToken}`
+                        },
+                        body: form
+                    });
+
+                    this.showNotification('구글 드라이브에 저장됨', 'success');
+                } catch (error) {
+                    console.error('구글 드라이브 저장 실패:', error);
+                }
+            }
+
+            async loadEventsFromGoogle() {
+                if (!currentUser) return;
+
+                try {
+                    const response = await fetch('https://www.googleapis.com/drive/v3/files?q=name="smart-calendar-events.json" and parents in "appDataFolder"', {
+                        headers: {
+                            'Authorization': `Bearer ${currentUser.accessToken}`
+                        }
+                    });
+                    const files = await response.json();
+
+                    if (files.files && files.files.length > 0) {
+                        const fileId = files.files[0].id;
+                        const fileResponse = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+                            headers: {
+                                'Authorization': `Bearer ${currentUser.accessToken}`
+                            }
+                        });
+                        const eventsData = await fileResponse.text();
+                        this.events = JSON.parse(eventsData);
+                        this.render();
+                        this.showNotification('구글 드라이브에서 일정을 불러왔습니다', 'success');
+                    }
+                } catch (error) {
+                    console.error('구글 드라이브 로드 실패:', error);
+                }
+            }
+
+            initNotifications() {
+                if ('Notification' in window) {
+                    if (Notification.permission === 'default') {
+                        Notification.requestPermission();
+                    }
+                    this.startNotificationTimer();
+                }
+            }
+
+            startNotificationTimer() {
+                setInterval(() => {
+                    this.checkForNotifications();
+                }, 60000); // 1분마다 체크
+            }
+
+            checkForNotifications() {
+                const now = new Date();
+                const currentTime = now.getHours() * 60 + now.getMinutes();
+                const currentDateStr = now.toISOString().split('T')[0];
+
+                this.events.forEach(event => {
+                    if (event.date === currentDateStr && event.startTime) {
+                        const eventTime = this.timeToMinutes(event.startTime);
+                        const timeDiff = eventTime - currentTime;
+
+                        // 15분 전 알림
+                        if (timeDiff === 15) {
+                            this.showBrowserNotification(`15분 후 ${event.title}`, '곧 시작됩니다');
+                        }
+                        // 정시 알림
+                        else if (timeDiff === 0) {
+                            this.showBrowserNotification(`${event.title}`, '지금 시작합니다');
+                        }
+                    }
+                });
+
+                // 아침 9시 일정 요약
+                if (now.getHours() === 9 && now.getMinutes() === 0) {
+                    const todayEvents = this.events.filter(e => e.date === currentDateStr);
+                    if (todayEvents.length > 0) {
+                        this.showBrowserNotification('오늘 일정 요약', `총 ${todayEvents.length}개의 일정이 있습니다`);
+                    }
+                }
+            }
+
+            showBrowserNotification(title, body) {
+                if (Notification.permission === 'granted') {
+                    const notification = new Notification(title, {
+                        body: body,
+                        icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/></svg>'
+                    });
+                    
+                    notification.onclick = () => {
+                        window.focus();
+                        notification.close();
+                    };
+                }
+            }
+
+            showNotification(message, type = 'info') {
+                // 간단한 토스트 알림
+                const toast = document.createElement('div');
+                toast.className = `fixed top-4 right-4 p-4 rounded-lg text-white z-50 ${
+                    type === 'success' ? 'bg-green-500' : 
+                    type === 'error' ? 'bg-red-500' : 'bg-blue-500'
+                }`;
+                toast.textContent = message;
+                document.body.appendChild(toast);
+                
+                setTimeout(() => {
+                    toast.remove();
+                }, 3000);
+            }
+            
+            bindEvents() {
+                // 뷰 전환
+                document.getElementById('monthView').addEventListener('click', () => this.changeView('month'));
+                document.getElementById('weekView').addEventListener('click', () => this.changeView('week'));
+                document.getElementById('dayView').addEventListener('click', () => this.changeView('day'));
+                
+                // 네비게이션
+                document.getElementById('prevBtn').addEventListener('click', () => this.navigate(-1));
+                document.getElementById('nextBtn').addEventListener('click', () => this.navigate(1));
+                document.getElementById('todayBtn').addEventListener('click', () => this.goToToday());
+                
+                // 미니 캘린더
+                document.getElementById('prevMonth').addEventListener('click', () => this.navigateMiniCalendar(-1));
+                document.getElementById('nextMonth').addEventListener('click', () => this.navigateMiniCalendar(1));
+                
+                // 모달
+                document.getElementById('createEvent').addEventListener('click', () => this.openModal());
+                document.getElementById('voiceAdd').addEventListener('click', () => this.startVoiceCommand());
+                document.getElementById('closeModal').addEventListener('click', () => this.closeModal());
+                document.getElementById('cancelModal').addEventListener('click', () => this.closeModal());
+                document.getElementById('eventForm').addEventListener('submit', (e) => this.saveEvent(e));
+                document.getElementById('deleteEvent').addEventListener('click', () => this.deleteEvent());
+                
+                // AI 도우미
+                document.getElementById('aiFab').addEventListener('click', () => this.toggleAI());
+                document.getElementById('closeAI').addEventListener('click', () => this.toggleAI());
+                document.getElementById('aiSendBtn').addEventListener('click', () => this.sendAIMessage());
+                document.getElementById('aiInput').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') this.sendAIMessage();
+                });
+
+                // 음성 인식
+                document.getElementById('voiceFab').addEventListener('click', () => this.toggleVoice());
+                
+                // 색상 선택
+                document.querySelectorAll('.color-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => this.selectColor(e.target.dataset.color));
+                });
+                
+                // 모달 외부 클릭 시 닫기
+                document.getElementById('eventModal').addEventListener('click', (e) => {
+                    if (e.target.id === 'eventModal') this.closeModal();
+                });
+
+                // 일정 입력 시 실시간 충돌 검사
+                ['eventDate', 'eventStartTime', 'eventEndTime'].forEach(id => {
+                    document.getElementById(id).addEventListener('change', () => this.checkRealTimeConflicts());
+                });
+            }
+
+            toggleAI() {
+                const aiAssistant = document.getElementById('aiAssistant');
+                const aiFab = document.getElementById('aiFab');
+                
+                if (aiAssistant.classList.contains('open')) {
+                    aiAssistant.classList.remove('open');
+                    aiFab.classList.remove('hidden');
+                } else {
+                    aiAssistant.classList.add('open');
+                    aiFab.classList.add('hidden');
+                }
+            }
+
+            sendAIMessage() {
+                const input = document.getElementById('aiInput');
+                const message = input.value.trim();
+                if (!message) return;
+
+                this.addAIMessage(message, true);
+                input.value = '';
+
+                setTimeout(() => {
+                    const response = this.processAIMessage(message);
+                    this.addAIMessage(response);
+                }, 1000);
+            }
+
+            addAIMessage(message, isUser = false) {
+                const chatBody = document.getElementById('aiChatBody');
+                const messageDiv = document.createElement('div');
+                messageDiv.className = isUser ? 'user-message' : 'ai-message';
+                messageDiv.textContent = message;
+                chatBody.appendChild(messageDiv);
+                chatBody.scrollTop = chatBody.scrollHeight;
+            }
+
+            processAIMessage(message) {
+                const lowerMessage = message.toLowerCase();
+                
+                if (lowerMessage.includes('일정') && lowerMessage.includes('충돌')) {
+                    return this.checkConflictsAI();
+                } else if (lowerMessage.includes('오늘') || lowerMessage.includes('내일')) {
+                    return this.getTodayScheduleAI(lowerMessage.includes('내일'));
+                } else if (lowerMessage.includes('분석') || lowerMessage.includes('통계')) {
+                    return this.analyzeScheduleAI();
+                } else {
+                    return '안녕하세요! 일정 관리에 대해 도움을 드릴 수 있습니다. "오늘 일정", "충돌 확인", "일정 분석" 등을 물어보세요!';
+                }
+            }
+
+            checkConflictsAI() {
+                const conflicts = this.detectConflicts();
+                if (conflicts.length === 0) {
+                    return '현재 일정 충돌이 없습니다! 깔끔하게 정리되어 있네요. 👍';
+                }
+                
+                let response = `${conflicts.length}개의 일정 충돌을 발견했습니다:\n`;
+                conflicts.forEach((conflict, index) => {
+                    response += `${index + 1}. ${conflict.title1} ↔ ${conflict.title2} (${conflict.date})\n`;
+                });
+                return response;
+            }
+
+            getTodayScheduleAI(isTomorrow = false) {
+                const targetDate = new Date();
+                if (isTomorrow) targetDate.setDate(targetDate.getDate() + 1);
+                
+                const dateStr = targetDate.toISOString().split('T')[0];
+                const events = this.events.filter(e => e.date === dateStr);
+                
+                const dayName = isTomorrow ? '내일' : '오늘';
+                
+                if (events.length === 0) {
+                    return `${dayName}은 일정이 없어서 여유로운 하루입니다! 😊`;
+                }
+                
+                let response = `${dayName} 일정 (${events.length}개):\n`;
+                events.forEach((event, index) => {
+                    const timeStr = event.startTime ? `${event.startTime}` : '종일';
+                    response += `${index + 1}. ${event.title} (${timeStr})\n`;
+                });
+                
+                return response;
+            }
+
+            analyzeScheduleAI() {
+                const totalEvents = this.events.length;
+                if (totalEvents === 0) {
+                    return '아직 일정이 없습니다. 새로운 일정을 추가해보세요!';
+                }
+
+                const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
+                const dayCount = {};
+                
+                this.events.forEach(event => {
+                    const date = new Date(event.date);
+                    const day = weekdays[date.getDay()];
+                    dayCount[day] = (dayCount[day] || 0) + 1;
+                });
+
+                const busiestDay = Object.keys(dayCount).reduce((a, b) => 
+                    dayCount[a] > dayCount[b] ? a : b
+                );
+
+                return `📊 일정 분석 결과:\n• 총 일정: ${totalEvents}개\n• 가장 바쁜 요일: ${busiestDay}요일\n• 평균 주간 일정: ${Math.round(totalEvents / 7 * 10) / 10}개`;
+            }
+
+            toggleVoice() {
+                if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                    this.showNotification('음성 인식이 지원되지 않는 브라우저입니다.', 'error');
+                    return;
+                }
+
+                this.startVoiceCommand();
+            }
+
+            startVoiceCommand() {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                const recognition = new SpeechRecognition();
+                
+                recognition.continuous = false;
+                recognition.interimResults = false;
+                recognition.lang = 'ko-KR';
+
+                const voiceFab = document.getElementById('voiceFab');
+                voiceFab.classList.add('listening');
+
+                recognition.onstart = () => {
+                    this.showNotification('음성을 듣고 있습니다...', 'info');
+                };
+
+                recognition.onresult = (event) => {
+                    const command = event.results[0][0].transcript;
+                    this.processVoiceCommand(command);
+                };
+
+                recognition.onerror = () => {
+                    this.showNotification('음성 인식에 실패했습니다.', 'error');
+                    voiceFab.classList.remove('listening');
+                };
+
+                recognition.onend = () => {
+                    voiceFab.classList.remove('listening');
+                };
+
+                recognition.start();
+            }
+
+            processVoiceCommand(command) {
+                const eventData = this.parseVoiceCommand(command);
+                
+                if (eventData.title) {
+                    this.openModal();
+                    
+                    if (eventData.title) document.getElementById('eventTitle').value = eventData.title;
+                    if (eventData.date) document.getElementById('eventDate').value = eventData.date;
+                    if (eventData.startTime) document.getElementById('eventStartTime').value = eventData.startTime;
+                    if (eventData.endTime) document.getElementById('eventEndTime').value = eventData.endTime;
+                    
+                    this.selectColor(eventData.color || 'blue');
+                    this.checkRealTimeConflicts();
+                    
+                    this.showNotification(`"${eventData.title}" 일정을 추가하는 폼을 열었습니다.`, 'success');
+                } else {
+                    this.showNotification('음성 명령을 이해하지 못했습니다.', 'error');
+                }
+            }
+
+            parseVoiceCommand(command) {
+                const eventData = {
+                    title: '',
+                    date: '',
+                    startTime: '',
+                    endTime: '',
+                    color: 'blue'
+                };
+
+                // 제목 추출
+                const titlePatterns = [
+                    /(.+?)\s*(?:을|를)?\s*(?:추가|만들|생성|등록)/,
+                    /(?:추가|만들|생성|등록)\s*(.+?)(?:\s+(?:오전|오후|시간|\d))/,
+                    /(\w+\s*\w*)\s*일정/
+                ];
+                
+                for (const pattern of titlePatterns) {
+                    const match = command.match(pattern);
+                    if (match && match[1]) {
+                        eventData.title = match[1].trim();
+                        break;
+                    }
+                }
+
+                // 날짜 추출
+                const today = new Date();
+                if (command.includes('오늘')) {
+                    eventData.date = today.toISOString().split('T')[0];
+                } else if (command.includes('내일')) {
+                    const tomorrow = new Date(today);
+                    tomorrow.setDate(tomorrow.getDate() + 1);
+                    eventData.date = tomorrow.toISOString().split('T')[0];
+                } else if (command.includes('모레')) {
+                    const dayAfterTomorrow = new Date(today);
+                    dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
+                    eventData.date = dayAfterTomorrow.toISOString().split('T')[0];
+                }
+
+                // 시간 추출
+                const timeMatch = command.match(/(?:오전|오후)?\s*(\d{1,2})시(?:\s*(\d{1,2})분)?/);
+                if (timeMatch) {
+                    let hour = parseInt(timeMatch[1]);
+                    const minute = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
+                    
+                    if (command.includes('오후') && hour < 12) {
+                        hour += 12;
+                    } else if (command.includes('오전') && hour === 12) {
+                        hour = 0;
+                    }
+                    
+                    eventData.startTime = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+                    
+                    // 기본 1시간 일정으로 설정
+                    const endHour = hour + 1;
+                    eventData.endTime = `${endHour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+                }
+
+                // 색상 추론
+                if (command.includes('회의') || command.includes('미팅')) eventData.color = 'red';
+                else if (command.includes('개인') || command.includes('약속')) eventData.color = 'blue';
+                else if (command.includes('가족') || command.includes('집')) eventData.color = 'green';
+                else if (command.includes('운동') || command.includes('헬스')) eventData.color = 'purple';
+
+                return eventData;
+            }
+
+            checkRealTimeConflicts() {
+                const date = document.getElementById('eventDate').value;
+                const startTime = document.getElementById('eventStartTime').value;
+                const endTime = document.getElementById('eventEndTime').value;
+
+                if (!date || !startTime || !endTime) {
+                    document.getElementById('conflictWarning').classList.add('hidden');
+                    return;
+                }
+
+                const conflicts = this.findConflictsForTime(date, startTime, endTime);
+                const warningDiv = document.getElementById('conflictWarning');
+                const detailsDiv = document.getElementById('conflictDetails');
+
+                if (conflicts.length > 0) {
+                    warningDiv.classList.remove('hidden');
+                    let details = '';
+                    conflicts.forEach(conflict => {
+                        details += `${conflict.title} (${conflict.startTime} - ${conflict.endTime})\n`;
+                    });
+                    detailsDiv.textContent = details;
+                } else {
+                    warningDiv.classList.add('hidden');
+                }
+            }
+
+            findConflictsForTime(date, startTime, endTime) {
+                return this.events.filter(event => {
+                    if (event.date !== date) return false;
+                    if (!event.startTime || !event.endTime) return false;
+                    if (this.editingEventId === event.id) return false;
+
+                    const eventStart = this.timeToMinutes(event.startTime);
+                    const eventEnd = this.timeToMinutes(event.endTime);
+                    const newStart = this.timeToMinutes(startTime);
+                    const newEnd = this.timeToMinutes(endTime);
+
+                    return (newStart < eventEnd && newEnd > eventStart);
+                });
+            }
+
+            detectConflicts() {
+                const conflicts = [];
+                for (let i = 0; i < this.events.length; i++) {
+                    for (let j = i + 1; j < this.events.length; j++) {
+                        const event1 = this.events[i];
+                        const event2 = this.events[j];
+                        
+                        if (event1.date === event2.date && 
+                            event1.startTime && event1.endTime &&
+                            event2.startTime && event2.endTime) {
+                            
+                            const start1 = this.timeToMinutes(event1.startTime);
+                            const end1 = this.timeToMinutes(event1.endTime);
+                            const start2 = this.timeToMinutes(event2.startTime);
+                            const end2 = this.timeToMinutes(event2.endTime);
+                            
+                            if (start1 < end2 && start2 < end1) {
+                                conflicts.push({
+                                    title1: event1.title,
+                                    title2: event2.title,
+                                    date: event1.date
+                                });
+                            }
+                        }
+                    }
+                }
+                return conflicts;
+            }
+
+            timeToMinutes(timeStr) {
+                const [hours, minutes] = timeStr.split(':').map(Number);
+                return hours * 60 + minutes;
+            }
+
+            updateAIInsights() {
+                const insights = [];
+                const conflicts = this.detectConflicts();
+                
+                if (conflicts.length > 0) {
+                    insights.push(`${conflicts.length}개 일정 충돌 있음`);
+                } else {
+                    insights.push('일정 충돌 없음');
+                }
+                
+                if (this.events.length === 0) {
+                    insights.push('일정을 추가해보세요');
+                } else {
+                    insights.push(`총 ${this.events.length}개 일정`);
+                }
+
+                const container = document.getElementById('insightsList');
+                container.innerHTML = '';
+                
+                insights.forEach((insight, index) => {
+                    const div = document.createElement('div');
+                    div.className = `bg-${index === 0 && conflicts.length > 0 ? 'red' : 'blue'}-50 p-2 rounded text-${index === 0 && conflicts.length > 0 ? 'red' : 'blue'}-800`;
+                    div.innerHTML = `<i class="fas fa-${index === 0 ? (conflicts.length > 0 ? 'exclamation-triangle' : 'check-circle') : 'lightbulb'} mr-1"></i>${insight}`;
+                    container.appendChild(div);
+                });
+            }
+            
+            render() {
+                this.updateTitle();
+                this.renderMiniCalendar();
+                this.updateAIInsights();
+                
+                switch(this.currentView) {
+                    case 'month':
+                        this.renderMonthView();
+                        break;
+                    case 'week':
+                        this.renderWeekView();
+                        break;
+                    case 'day':
+                        this.renderDayView();
+                        break;
+                }
+            }
+            
+            updateTitle() {
+                const options = { year: 'numeric', month: 'long' };
+                const title = this.currentDate.toLocaleDateString('ko-KR', options);
+                document.getElementById('currentTitle').textContent = title;
+            }
+            
+            renderMiniCalendar() {
+                const year = this.currentDate.getFullYear();
+                const month = this.currentDate.getMonth();
+                const today = new Date();
+                const selectedDateStr = this.selectedDate.toISOString().split('T')[0];
+                
+                document.getElementById('miniCalendarTitle').textContent = 
+                    new Date(year, month).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long' });
+                
+                const firstDay = new Date(year, month, 1).getDay();
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                const daysInPrevMonth = new Date(year, month, 0).getDate();
+                
+                let html = '';
+                let date = 1;
+                let nextMonthDate = 1;
+                
+                for (let week = 0; week < 6; week++) {
+                    html += '<tr>';
+                    for (let day = 0; day < 7; day++) {
+                        let cellDate, cellMonth, cellYear, cellClass = '';
+                        
+                        if (week === 0 && day < firstDay) {
+                            cellDate = daysInPrevMonth - firstDay + day + 1;
+                            cellMonth = month - 1;
+                            cellYear = month === 0 ? year - 1 : year;
+                            cellClass = 'text-gray-400';
+                        } else if (date > daysInMonth) {
+                            cellDate = nextMonthDate++;
+                            cellMonth = month + 1;
+                            cellYear = month === 11 ? year + 1 : year;
+                            cellClass = 'text-gray-400';
+                        } else {
+                            cellDate = date++;
+                            cellMonth = month;
+                            cellYear = year;
+                        }
+                        
+                        const cellDateStr = `${cellYear}-${String(cellMonth + 1).padStart(2, '0')}-${String(cellDate).padStart(2, '0')}`;
+                        
+                        if (cellYear === today.getFullYear() && cellMonth === today.getMonth() && cellDate === today.getDate()) {
+                            cellClass += ' today';
+                        }
+                        
+                        if (cellDateStr === selectedDateStr) {
+                            cellClass += ' selected';
+                        }
+                        
+                        html += `<td class="${cellClass}" data-date="${cellDateStr}">${cellDate}</td>`;
+                    }
+                    html += '</tr>';
+                    
+                    if (date > daysInMonth && nextMonthDate > 7) break;
+                }
+                
+                document.getElementById('miniCalendarBody').innerHTML = html;
+                
+                // 미니캘린더 날짜 클릭 이벤트
+                document.querySelectorAll('#miniCalendarBody td').forEach(cell => {
+                    cell.addEventListener('click', (e) => {
+                        this.selectedDate = new Date(e.target.dataset.date);
+                        this.currentDate = new Date(this.selectedDate);
+                        this.render();
+                    });
+                });
+            }
+            
+            renderMonthView() {
+                document.getElementById('monthViewContainer').classList.remove('hidden');
+                document.getElementById('weekViewContainer').classList.add('hidden');
+                document.getElementById('dayViewContainer').classList.add('hidden');
+                
+                const year = this.currentDate.getFullYear();
+                const month = this.currentDate.getMonth();
+                const today = new Date();
+                const selectedDateStr = this.selectedDate.toISOString().split('T')[0];
+                
+                const firstDay = new Date(year, month, 1).getDay();
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                const daysInPrevMonth = new Date(year, month, 0).getDate();
+                
+                let html = '';
+                let date = 1;
+                let nextMonthDate = 1;
+                
+                for (let week = 0; week < 6; week++) {
+                    for (let day = 0; day < 7; day++) {
+                        let cellDate, cellMonth, cellYear, cellClass = 'calendar-cell p-2';
+                        
+                        if (week === 0 && day < firstDay) {
+                            cellDate = daysInPrevMonth - firstDay + day + 1;
+                            cellMonth = month - 1;
+                            cellYear = month === 0 ? year - 1 : year;
+                            cellClass += ' other-month';
+                        } else if (date > daysInMonth) {
+                            cellDate = nextMonthDate++;
+                            cellMonth = month + 1;
+                            cellYear = month === 11 ? year + 1 : year;
+                            cellClass += ' other-month';
+                        } else {
+                            cellDate = date++;
+                            cellMonth = month;
+                            cellYear = year;
+                        }
+                        
+                        const dateStr = `${cellYear}-${String(cellMonth + 1).padStart(2, '0')}-${String(cellDate).padStart(2, '0')}`;
+                        
+                        if (cellYear === today.getFullYear() && cellMonth === today.getMonth() && cellDate === today.getDate()) {
+                            cellClass += ' today';
+                        }
+                        
+                        if (dateStr === selectedDateStr) {
+                            cellClass += ' selected';
+                        }
+                        
+                        const dayEvents = this.events.filter(event => event.date === dateStr);
+                        
+                        let eventsHtml = '';
+                        dayEvents.forEach(event => {
+                            const conflictClass = this.hasConflictOnDate(dateStr, event.id) ? ' conflict' : '';
+                            eventsHtml += `<div class="event-item event-${event.color}${conflictClass}" data-id="${event.id}">${event.title}</div>`;
+                        });
+                        
+                        html += `<div class="${cellClass}" data-date="${dateStr}">
+                            <div class="font-semibold text-sm mb-1">${cellDate}</div>
+                            <div class="events">${eventsHtml}</div>
+                        </div>`;
+                    }
+                    
+                    if (date > daysInMonth && nextMonthDate > 7) break;
+                }
+                
+                document.getElementById('monthCalendar').innerHTML = html;
+                
+                // 이벤트 바인딩
+                document.querySelectorAll('.calendar-cell').forEach(cell => {
+                    cell.addEventListener('click', (e) => {
+                        this.selectedDate = new Date(e.currentTarget.dataset.date);
+                        this.render();
+                    });
+                    
+                    cell.addEventListener('dblclick', (e) => {
+                        this.selectedDate = new Date(e.currentTarget.dataset.date);
+                        this.openModal();
+                    });
+                });
+                
+                document.querySelectorAll('.event-item').forEach(item => {
+                    item.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        this.editEvent(e.target.dataset.id);
+                    });
+                });
+            }
+
+            renderWeekView() {
+                document.getElementById('monthViewContainer').classList.add('hidden');
+                document.getElementById('weekViewContainer').classList.remove('hidden');
+                document.getElementById('dayViewContainer').classList.add('hidden');
+                
+                const startOfWeek = new Date(this.currentDate);
+                startOfWeek.setDate(this.currentDate.getDate() - this.currentDate.getDay());
+                
+                let html = '';
+                
+                // 시간 슬롯 생성
+                for (let hour = 0; hour < 24; hour++) {
+                    html += `<div class="week-time-slot">${hour.toString().padStart(2, '0')}:00</div>`;
+                    
+                    for (let day = 0; day < 7; day++) {
+                        const cellDate = new Date(startOfWeek);
+                        cellDate.setDate(startOfWeek.getDate() + day);
+                        const dateStr = cellDate.toISOString().split('T')[0];
+                        
+                        const hourEvents = this.events.filter(event => {
+                            if (event.date !== dateStr) return false;
+                            if (!event.startTime) return hour === 0;
+                            const eventHour = parseInt(event.startTime.split(':')[0]);
+                            return eventHour === hour;
+                        });
+                        
+                        let eventsHtml = '';
+                        hourEvents.forEach(event => {
+                            const conflictClass = this.hasConflictOnDate(dateStr, event.id) ? ' conflict' : '';
+                            eventsHtml += `<div class="event-item event-${event.color}${conflictClass}" data-id="${event.id}">${event.title}</div>`;
+                        });
+                        
+                        html += `<div class="week-cell" data-date="${dateStr}" data-hour="${hour}">${eventsHtml}</div>`;
+                    }
+                }
+                
+                document.getElementById('weekCalendar').innerHTML = html;
+                
+                // 이벤트 바인딩
+                document.querySelectorAll('.week-cell').forEach(cell => {
+                    cell.addEventListener('dblclick', (e) => {
+                        this.selectedDate = new Date(e.currentTarget.dataset.date);
+                        const hour = e.currentTarget.dataset.hour;
+                        this.openModal(hour);
+                    });
+                });
+                
+                document.querySelectorAll('.event-item').forEach(item => {
+                    item.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        this.editEvent(e.target.dataset.id);
+                    });
+                });
+            }
+            
+            renderDayView() {
+                document.getElementById('monthViewContainer').classList.add('hidden');
+                document.getElementById('weekViewContainer').classList.add('hidden');
+                document.getElementById('dayViewContainer').classList.remove('hidden');
+                
+                const dateStr = this.currentDate.toISOString().split('T')[0];
+                document.getElementById('dayHeader').textContent = 
+                    this.currentDate.toLocaleDateString('ko-KR', { 
+                        year: 'numeric', 
+                        month: 'long', 
+                        day: 'numeric',
+                        weekday: 'long' 
+                    });
+                
+                let html = '';
+                
+                // 시간 슬롯 생성
+                for (let hour = 0; hour < 24; hour++) {
+                    html += `<div class="week-time-slot">${hour.toString().padStart(2, '0')}:00</div>`;
+                    
+                    const hourEvents = this.events.filter(event => {
+                        if (event.date !== dateStr) return false;
+                        if (!event.startTime) return hour === 0;
+                        const eventHour = parseInt(event.startTime.split(':')[0]);
+                        return eventHour === hour;
+                    });
+                    
+                    let eventsHtml = '';
+                    hourEvents.forEach(event => {
+                        const conflictClass = this.hasConflictOnDate(dateStr, event.id) ? ' conflict' : '';
+                        eventsHtml += `<div class="event-item event-${event.color}${conflictClass}" data-id="${event.id}">${event.title}</div>`;
+                    });
+                    
+                    html += `<div class="week-cell" data-date="${dateStr}" data-hour="${hour}">${eventsHtml}</div>`;
+                }
+                
+                document.getElementById('dayCalendar').innerHTML = html;
+                
+                // 이벤트 바인딩
+                document.querySelectorAll('.week-cell').forEach(cell => {
+                    cell.addEventListener('dblclick', (e) => {
+                        this.selectedDate = new Date(e.currentTarget.dataset.date);
+                        const hour = e.currentTarget.dataset.hour;
+                        this.openModal(hour);
+                    });
+                });
+                
+                document.querySelectorAll('.event-item').forEach(item => {
+                    item.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        this.editEvent(e.target.dataset.id);
+                    });
+                });
+            }
+
+            hasConflictOnDate(date, eventId) {
+                const dayEvents = this.events.filter(e => e.date === date && e.id !== eventId);
+                const currentEvent = this.events.find(e => e.id === eventId);
+                
+                if (!currentEvent || !currentEvent.startTime || !currentEvent.endTime) return false;
+                
+                return dayEvents.some(event => {
+                    if (!event.startTime || !event.endTime) return false;
+                    
+                    const currentStart = this.timeToMinutes(currentEvent.startTime);
+                    const currentEnd = this.timeToMinutes(currentEvent.endTime);
+                    const eventStart = this.timeToMinutes(event.startTime);
+                    const eventEnd = this.timeToMinutes(event.endTime);
+                    
+                    return (currentStart < eventEnd && currentEnd > eventStart);
+                });
+            }
+            
+            changeView(view) {
+                this.currentView = view;
+                
+                // 버튼 스타일 업데이트
+                document.querySelectorAll('#monthView, #weekView, #dayView').forEach(btn => {
+                    btn.classList.remove('bg-blue-500', 'text-white');
+                    btn.classList.add('hover:bg-gray-50');
+                });
+                
+                document.getElementById(`${view}View`).classList.add('bg-blue-500', 'text-white');
+                document.getElementById(`${view}View`).classList.remove('hover:bg-gray-50');
+                
+                this.render();
+            }
+            
+            navigate(direction) {
+                switch(this.currentView) {
+                    case 'month':
+                        this.currentDate.setMonth(this.currentDate.getMonth() + direction);
+                        break;
+                    case 'week':
+                        this.currentDate.setDate(this.currentDate.getDate() + (direction * 7));
+                        break;
+                    case 'day':
+                        this.currentDate.setDate(this.currentDate.getDate() + direction);
+                        break;
+                }
+                this.render();
+            }
+            
+            navigateMiniCalendar(direction) {
+                this.currentDate.setMonth(this.currentDate.getMonth() + direction);
+                this.render();
+            }
+            
+            goToToday() {
+                this.currentDate = new Date();
+                this.selectedDate = new Date();
+                this.render();
+            }
+            
+            openModal(hour = null) {
+                this.editingEventId = null;
+                document.getElementById('modalTitle').textContent = '새 일정';
+                document.getElementById('deleteEvent').classList.add('hidden');
+                document.getElementById('conflictWarning').classList.add('hidden');
+                
+                // 폼 초기화
+                document.getElementById('eventForm').reset();
+                document.getElementById('eventDate').value = this.selectedDate.toISOString().split('T')[0];
+                
+                if (hour !== null) {
+                    document.getElementById('eventStartTime').value = `${hour.toString().padStart(2, '0')}:00`;
+                    document.getElementById('eventEndTime').value = `${(hour + 1).toString().padStart(2, '0')}:00`;
+                }
+                
+                this.selectColor('blue');
+                document.getElementById('eventModal').style.display = 'block';
+            }
+            
+            editEvent(eventId) {
+                const event = this.events.find(e => e.id === eventId);
+                if (!event) return;
+                
+                this.editingEventId = eventId;
+                document.getElementById('modalTitle').textContent = '일정 편집';
+                document.getElementById('deleteEvent').classList.remove('hidden');
+                document.getElementById('conflictWarning').classList.add('hidden');
+                
+                // 폼에 데이터 채우기
+                document.getElementById('eventTitle').value = event.title;
+                document.getElementById('eventDate').value = event.date;
+                document.getElementById('eventStartTime').value = event.startTime || '';
+                document.getElementById('eventEndTime').value = event.endTime || '';
+                document.getElementById('eventDescription').value = event.description || '';
+                
+                this.selectColor(event.color);
+                document.getElementById('eventModal').style.display = 'block';
+            }
+            
+            closeModal() {
+                document.getElementById('eventModal').style.display = 'none';
+                this.editingEventId = null;
+            }
+            
+            selectColor(color) {
+                this.selectedColor = color;
+                document.querySelectorAll('.color-btn').forEach(btn => {
+                    btn.classList.remove('border-gray-800');
+                    btn.classList.add('border-transparent');
+                });
+                document.querySelector(`[data-color="${color}"]`).classList.remove('border-transparent');
+                document.querySelector(`[data-color="${color}"]`).classList.add('border-gray-800');
+            }
+            
+            saveEvent(e) {
+                e.preventDefault();
+                
+                const eventData = {
+                    id: this.editingEventId || Date.now().toString(),
+                    title: document.getElementById('eventTitle').value,
+                    date: document.getElementById('eventDate').value,
+                    startTime: document.getElementById('eventStartTime').value,
+                    endTime: document.getElementById('eventEndTime').value,
+                    description: document.getElementById('eventDescription').value,
+                    color: this.selectedColor
+                };
+                
+                if (this.editingEventId) {
+                    const index = this.events.findIndex(e => e.id === this.editingEventId);
+                    this.events[index] = eventData;
+                } else {
+                    this.events.push(eventData);
+                }
+                
+                this.saveToStorage();
+                if (currentUser) {
+                    this.saveEventsToGoogle();
+                }
+                this.closeModal();
+                this.render();
+            }
+            
+            deleteEvent() {
+                if (this.editingEventId) {
+                    this.events = this.events.filter(e => e.id !== this.editingEventId);
+                    this.saveToStorage();
+                    if (currentUser) {
+                        this.saveEventsToGoogle();
+                    }
+                    this.closeModal();
+                    this.render();
+                }
+            }
+            
+            saveToStorage() {
+                localStorage.setItem('calendar-events', JSON.stringify(this.events));
+            }
+        }
+        
+        // 앱 초기화
+        document.addEventListener('DOMContentLoaded', () => {
+            new CalendarApp();
+        });
+    </script>
+</body>
+</html>
